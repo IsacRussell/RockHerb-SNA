@@ -10,7 +10,6 @@ import random
 from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
-import streamlit.components.v1 as components
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -172,7 +171,7 @@ def draw_single_seller_network(seller_name, df):
     html_file = f"net_single_seller.html"
     net.save_graph(html_file)
     with open(html_file, 'r', encoding='utf-8') as f:
-        components.html(f.read(), height=470)
+        st.html(f.read())
     os.remove(html_file)
 
 # ============================================================================
@@ -250,7 +249,7 @@ def draw_spiderweb_network(G, title, prefix):
     html_file = f"net_{title}.html"
     net.save_graph(html_file)
     with open(html_file, 'r', encoding='utf-8') as f:
-        components.html(f.read(), height=620)
+        st.html(f.read())
     os.remove(html_file)
 
 # ============================================================================
@@ -365,7 +364,7 @@ def draw_plotly_state_customer(df):
         hovermode='closest'
     )
 
-    st.plotly_chart(fig, use_container_width=True, clear_figure=True, config={
+    st.plotly_chart(fig, use_container_width=True, config={
         'scrollZoom': True,
         'displayModeBar': True,
         'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
@@ -483,7 +482,7 @@ def draw_plotly_ecosystem(df):
         hovermode='closest'
     )
 
-    st.plotly_chart(fig, use_container_width=True, clear_figure=True, config={
+    st.plotly_chart(fig, use_container_width=True, config={
         'scrollZoom': True,
         'displayModeBar': True,
         'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
