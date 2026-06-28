@@ -56,12 +56,12 @@ st.markdown(f"""
 # 2. DATA INGESTION ENGINE
 # ============================================================================
 @st.cache_data
-def load_and_clean_data(file):
+def load_and_clean_data(file_path):
     try:
-        if file.name.endswith('.csv'):
-            df = pd.read_csv(file)
+        if str(file_path).lower().endswith('.csv'):
+            df = pd.read_csv(file_path)
         else:
-            df = pd.read_excel(file)
+            df = pd.read_excel(file_path)
 
         required_cols = ['Order ID', 'Seller Name', 'Product', 'Phone', 'Order Date', 'Grand Total', 'State']
         
@@ -399,7 +399,6 @@ def draw_plotly_ecosystem(df):
     cust_to_sellers = unique_pairs.groupby('Phone')['Seller Name'].apply(list).to_dict()
 
     edge_x, edge_y = [], []
-    # BUG FIX: Ensure 4 lists are mapped to the 4 variables
     s_x, s_y, s_hover, s_size = [], [], [], []
     c_x, c_y, c_hover = [], [], []
 
@@ -528,16 +527,20 @@ def calculate_churn_rfm(df):
 def main():
     st.title("E-Commerce Intelligence: SNA & Churn")
     
-    uploaded_file = st.sidebar.file_uploader("Upload Dataset (CSV/Excel)", type=['csv', 'xlsx'])
+    # ---------------------------------------------------------
+    # HARDCODED DATASET PATH (NO UPLOADER)
+    # ---------------------------------------------------------
+    DATA_FILE = "RockHerb_Full.xlsx"
     
-    if not uploaded_file:
-        st.info("Please upload your dataset to begin analysis.")
+    if not os.path.exists(DATA_FILE):
+        st.error(f"Dataset '{DATA_FILE}' not found. Please make sure '{DATA_FILE}' is inside the same folder as this script.")
         return
         
     with st.spinner("Processing dataset..."):
-        raw_df = load_and_clean_data(uploaded_file)
+        raw_df = load_and_clean_data(DATA_FILE)
         
     if raw_df is None: return
+    # ---------------------------------------------------------
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("Time Filters")
@@ -629,7 +632,6 @@ def main():
         c_left, c_right = st.columns([1, 2])
         
         with c_left:
-            import matplotlib.pyplot as plt 
             risk_counts = churn_df['Churn Risk Profile'].value_counts().reset_index()
             risk_counts.columns = ['Profile', 'Count']
             
