@@ -10,6 +10,7 @@ import random
 from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
+import streamlit.components.v1 as components
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -173,7 +174,7 @@ def draw_single_seller_network(seller_name, df):
     html_file = f"net_single_seller.html"
     net.save_graph(html_file)
     with open(html_file, 'r', encoding='utf-8') as f:
-        st.html(f.read())
+        components.html(f.read(), height=470)
     os.remove(html_file)
 
 # ============================================================================
@@ -251,7 +252,7 @@ def draw_spiderweb_network(G, title, prefix):
     html_file = f"net_{title}.html"
     net.save_graph(html_file)
     with open(html_file, 'r', encoding='utf-8') as f:
-        st.html(f.read())
+        components.html(f.read(), height=620)
     os.remove(html_file)
 
 # ============================================================================
