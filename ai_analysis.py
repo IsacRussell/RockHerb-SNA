@@ -10,7 +10,6 @@ import random
 from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
-import streamlit.components.v1 as components
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -82,7 +81,9 @@ def load_and_clean_data(file_path):
         else:
             df['Base_Product'] = df['Product'].astype(str).str.strip()
             
-        df['Phone'] = df['Phone'].astype(str).str.strip()
+        # FIX: Remove trailing .0 from phone numbers loaded as floats
+        df['Phone'] = df['Phone'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        
         df['State'] = df['State'].astype(str).str.strip().str.upper() 
         df['Order Date'] = pd.to_datetime(df['Order Date'], errors='coerce')
         df = df.dropna(subset=['Order Date'])
@@ -114,7 +115,7 @@ def show_seller_profile(seller_name, data):
     total_orders = seller_data['Order ID'].nunique()
     
     col1, col2, col3 = st.columns(3)
-    col1.metric("Revenue", f"${total_rev:,.2f}")
+    col1.metric("Revenue", f"RM {total_rev:,.2f}")
     col2.metric("Customers", unique_cust)
     col3.metric("Orders", total_orders)
     
@@ -172,7 +173,7 @@ def draw_single_seller_network(seller_name, df):
     html_file = f"net_single_seller.html"
     net.save_graph(html_file)
     with open(html_file, 'r', encoding='utf-8') as f:
-        components.html(f.read(), height=470)
+        st.html(f.read())
     os.remove(html_file)
 
 # ============================================================================
@@ -250,7 +251,7 @@ def draw_spiderweb_network(G, title, prefix):
     html_file = f"net_{title}.html"
     net.save_graph(html_file)
     with open(html_file, 'r', encoding='utf-8') as f:
-        components.html(f.read(), height=620)
+        st.html(f.read())
     os.remove(html_file)
 
 # ============================================================================
@@ -567,7 +568,7 @@ def main():
     c1.metric("Total Orders", f"{df['Order ID'].nunique():,}")
     c2.metric("Unique Customers", f"{df['Phone'].nunique():,}")
     c3.metric("Total Sellers", f"{df['Seller Name'].nunique():,}")
-    c4.metric("Gross Revenue", f"${df['Grand Total'].sum():,.2f}")
+    c4.metric("Gross Revenue", f"RM {df['Grand Total'].sum():,.2f}")
     
     st.markdown("---")
     
@@ -650,8 +651,19 @@ def main():
             
             st.pyplot(fig)
             
-        st.markdown("**Raw Customer Churn Data:**")
-        st.dataframe(churn_df.sort_values(by='Recency_Days', ascending=False).head(100), use_container_width=True)
+        st.markdown("---")
+        st.markdown("**🔍 View Customers by Risk Profile**")
+        
+        # New Interactive Dropdown for specific customer lists
+        profiles = ["All Profiles"] + churn_df['Churn Risk Profile'].unique().tolist()
+        selected_profile = st.selectbox("Select a Risk Level to filter the customer list below:", profiles)
+        
+        if selected_profile == "All Profiles":
+            display_df = churn_df.sort_values(by='Recency_Days', ascending=False)
+        else:
+            display_df = churn_df[churn_df['Churn Risk Profile'] == selected_profile].sort_values(by='Recency_Days', ascending=False)
+            
+        st.dataframe(display_df, use_container_width=True)
 
 if __name__ == "__main__":
     main()
