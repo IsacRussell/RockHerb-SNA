@@ -5,3 +5,4 @@ matplotlib
 pyvis
 plotly
 openpyxl
+scikit-learn
