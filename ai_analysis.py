@@ -29,27 +29,34 @@ COLOR_EDGE = "#9e9e9e"        # Medium gray for network lines
 
 st.markdown(f"""
     <style>
-    html, body, [data-testid="stAppViewContainer"] {{ 
+    /* Main App Background and Top Header */
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{ 
         background-color: {COLOR_BG} !important; 
         color: {COLOR_TEXT} !important; 
     }}
     
+    /* Sidebar Background */
     [data-testid="stSidebar"] {{ 
         background-color: {COLOR_SURFACE} !important; 
         border-right: 1px solid #e0e0e0 !important;
     }}
     
-    [data-testid="stSidebar"] *, 
-    [data-testid="stMarkdownContainer"] *, 
-    .stSelectbox label, 
-    .stFileUploader label {{
+    /* Force text colors across common elements */
+    h1, h2, h3, h4, h5, h6, p, span, div, label {{
         color: {COLOR_TEXT} !important;
     }}
     
+    /* Metric Values */
     [data-testid="stMetricValue"] {{ 
         font-size: 2rem; 
         font-weight: bold; 
-        color: {COLOR_ACCENT}; 
+        color: {COLOR_ACCENT} !important; 
+    }}
+    
+    /* Tabs styling */
+    button[data-baseweb="tab"] {{
+        background-color: {COLOR_BG} !important;
+        color: {COLOR_TEXT} !important;
     }}
     </style>
     """, unsafe_allow_html=True)
