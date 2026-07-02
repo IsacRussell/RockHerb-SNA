@@ -11,19 +11,21 @@ from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
 import streamlit.components.v1 as components
+from sklearn.ensemble import RandomForestClassifier
 import warnings
 warnings.filterwarnings('ignore')
 
 # ============================================================================
-# 1. PLATFORM CONFIGURATION & UI SETUP
+# 1. PLATFORM CONFIGURATION & UI SETUP (LIGHT MODE)
 # ============================================================================
 st.set_page_config(page_title="E-Commerce Intelligence", layout="wide")
 
-COLOR_BG = "#050505"
-COLOR_SURFACE = "#121212"
-COLOR_TEXT = "#ffffff"
-COLOR_ACCENT = "#990000"
-COLOR_EDGE = "#333333"
+# Updated to Light Mode Palette
+COLOR_BG = "#ffffff"          # Pure White background
+COLOR_SURFACE = "#f8f9fa"     # Light gray for sidebars and hover states
+COLOR_TEXT = "#121212"        # Near-black for highly readable text
+COLOR_ACCENT = "#d32f2f"      # Deep red for accents and high-risk nodes
+COLOR_EDGE = "#9e9e9e"        # Medium gray for network lines
 
 st.markdown(f"""
     <style>
@@ -34,7 +36,7 @@ st.markdown(f"""
     
     [data-testid="stSidebar"] {{ 
         background-color: {COLOR_SURFACE} !important; 
-        border-right: 1px solid {COLOR_ACCENT} !important;
+        border-right: 1px solid #e0e0e0 !important;
     }}
     
     [data-testid="stSidebar"] *, 
@@ -82,7 +84,6 @@ def load_and_clean_data(file_path):
         else:
             df['Base_Product'] = df['Product'].astype(str).str.strip()
             
-        # FIX: Remove trailing .0 from phone numbers loaded as floats
         df['Phone'] = df['Phone'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         
         df['State'] = df['State'].astype(str).str.strip().str.upper() 
@@ -159,14 +160,14 @@ def draw_single_seller_network(seller_name, df):
         else:
             net.add_node(
                 node, label=node, size=10, x=x, y=y,
-                color={"background": COLOR_TEXT, "border": COLOR_TEXT}
+                color={"background": "#e0e0e0", "border": COLOR_EDGE} # Darker borders for light mode
             )
-            net.add_edge(seller_name, node, color={"color": COLOR_EDGE, "opacity": 0.5})
+            net.add_edge(seller_name, node, color={"color": COLOR_EDGE, "opacity": 0.6})
 
     net.set_options(f"""
     var options = {{
       "physics": {{ "enabled": false }},
-      "nodes": {{ "font": {{ "color": "{COLOR_TEXT}", "size": 12, "strokeWidth": 3, "strokeColor": "{COLOR_BG}" }}, "shape": "dot" }},
+      "nodes": {{ "font": {{ "color": "{COLOR_TEXT}", "size": 12, "strokeWidth": 2, "strokeColor": "{COLOR_BG}" }}, "shape": "dot" }},
       "edges": {{ "smooth": false }}
     }}
     """)
@@ -178,7 +179,7 @@ def draw_single_seller_network(seller_name, df):
     os.remove(html_file)
 
 # ============================================================================
-# 4. UNIVERSAL UNIPARTITE SNA BUILDER (Fruchterman-Reingold Engine)
+# 4. UNIVERSAL UNIPARTITE SNA BUILDER
 # ============================================================================
 def build_network(df, node_col, edge_group_col, max_cap=100):
     G = nx.Graph()
@@ -206,26 +207,21 @@ def draw_spiderweb_network(G, title, prefix):
         G = G.subgraph(top_nodes).copy()
         
     net = Network(height='600px', width='100%', bgcolor=COLOR_BG, font_color=COLOR_TEXT, directed=False)
-    
     pos = nx.spring_layout(G, k=1.5, iterations=200, seed=42)
     
     degree_dict = dict(G.degree())
     max_degree = max(degree_dict.values()) if degree_dict else 1
     min_degree = min(degree_dict.values()) if degree_dict else 1
     
-    cmap = mcolors.LinearSegmentedColormap.from_list("connection_heatmap", [COLOR_ACCENT, "#ff5555", COLOR_TEXT])
+    # Light mode colormap: Accent(Red) -> Light Pink -> Light Gray
+    cmap = mcolors.LinearSegmentedColormap.from_list("connection_heatmap", [COLOR_ACCENT, "#ffb3b3", "#e0e0e0"])
     
     for node in G.nodes():
         deg = degree_dict.get(node, 0)
-        
-        if max_degree > min_degree:
-            heat_ratio = (deg - min_degree) / (max_degree - min_degree)
-        else:
-            heat_ratio = 0.5
+        heat_ratio = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
             
         node_color = mcolors.to_hex(cmap(heat_ratio))
         size = 10 + (25 * heat_ratio) 
-        
         x = float(pos[node][0]) * 7500
         y = float(pos[node][1]) * 7500
         
@@ -233,18 +229,17 @@ def draw_spiderweb_network(G, title, prefix):
             str(node), 
             label=f"{str(node)[:10]}.." if heat_ratio < 0.5 else f"{str(node)[:15]}",
             title=f"{prefix} {node}\nConnections: {deg}", 
-            size=size,
-            x=x, y=y,
-            color={"background": node_color, "border": node_color}
+            size=size, x=x, y=y,
+            color={"background": node_color, "border": COLOR_EDGE} # Visible border in light mode
         )
         
     for u, v, d in G.edges(data=True):
-        net.add_edge(str(u), str(v), value=d.get('weight', 1), color={"color": COLOR_EDGE, "opacity": 0.6})
+        net.add_edge(str(u), str(v), value=d.get('weight', 1), color={"color": COLOR_EDGE, "opacity": 0.4})
         
     net.set_options(f"""
     var options = {{
       "physics": {{ "enabled": false }},
-      "nodes": {{ "font": {{ "color": "{COLOR_TEXT}", "size": 12, "strokeWidth": 3, "strokeColor": "{COLOR_BG}" }}, "shape": "dot" }},
+      "nodes": {{ "font": {{ "color": "{COLOR_TEXT}", "size": 12, "strokeWidth": 2, "strokeColor": "{COLOR_BG}" }}, "shape": "dot" }},
       "edges": {{ "smooth": false }} 
     }}
     """)
@@ -256,13 +251,11 @@ def draw_spiderweb_network(G, title, prefix):
     os.remove(html_file)
 
 # ============================================================================
-# 5. GRAVITATIONAL WEB (State-Customer Ecosystem - Tab 4)
+# 5. GRAVITATIONAL WEB (State-Customer)
 # ============================================================================
 def draw_plotly_state_customer(df):
     unique_pairs = df[['State', 'Phone']].drop_duplicates()
-    if unique_pairs.empty:
-        st.warning("No data available to build the ecosystem.")
-        return
+    if unique_pairs.empty: return
 
     state_cust_counts = unique_pairs['State'].value_counts()
     max_state_count = state_cust_counts.max() if not state_cust_counts.empty else 1
@@ -287,10 +280,7 @@ def draw_plotly_state_customer(df):
         s_x.append(x)
         s_y.append(y)
         count = state_cust_counts.get(s, 0)
-        
-        calculated_size = 18 + ((count / max_state_count) * 50)
-        s_size.append(calculated_size)
-        
+        s_size.append(18 + ((count / max_state_count) * 50))
         s_labels.append(str(s)) 
         s_hover.append(f"<b>State:</b> {s}<br><b>Customers:</b> {count}")
 
@@ -309,9 +299,7 @@ def draw_plotly_state_customer(df):
             
         c_x.append(cx)
         c_y.append(cy)
-        
-        shared_text = ", ".join([str(s) for s in linked_states])
-        c_hover.append(f"<b>Customer:</b> {cust}<br><b>States:</b> {shared_text}")
+        c_hover.append(f"<b>Customer:</b> {cust}<br><b>States:</b> {', '.join([str(s) for s in linked_states])}")
         
         for s in linked_states:
             sx, sy = state_coords[s]
@@ -321,82 +309,53 @@ def draw_plotly_state_customer(df):
     fig = go.Figure()
 
     fig.add_trace(go.Scattergl(
-        x=edge_x, y=edge_y,
-        mode='lines',
-        line=dict(width=0.15, color=COLOR_EDGE),
-        hoverinfo='none',
-        showlegend=False
+        x=edge_x, y=edge_y, mode='lines',
+        line=dict(width=0.25, color=COLOR_EDGE), # Darker edges for white background
+        hoverinfo='none', showlegend=False
     ))
 
     fig.add_trace(go.Scattergl(
-        x=c_x, y=c_y,
-        mode='markers',
-        marker=dict(size=4, color=COLOR_TEXT, line=dict(width=0.5, color=COLOR_BG)),
-        customdata=c_hover,
-        hovertemplate="%{customdata}<extra></extra>",
-        name='Customers'
+        x=c_x, y=c_y, mode='markers',
+        marker=dict(size=4, color="#666666", line=dict(width=0.5, color=COLOR_BG)), # Dark gray dots
+        customdata=c_hover, hovertemplate="%{customdata}<extra></extra>", name='Customers'
     ))
 
     fig.add_trace(go.Scattergl(
-        x=s_x, y=s_y,
-        mode='markers+text',
+        x=s_x, y=s_y, mode='markers+text',
         marker=dict(size=s_size, color=COLOR_ACCENT, line=dict(width=2, color=COLOR_TEXT)),
-        text=s_labels,
-        textposition="bottom center",
+        text=s_labels, textposition="bottom center",
         textfont=dict(color=COLOR_TEXT, size=13, family="Arial Black"),
-        customdata=s_hover,
-        hovertemplate="%{customdata}<extra></extra>",
-        name='States'
+        customdata=s_hover, hovertemplate="%{customdata}<extra></extra>", name='States'
     ))
 
     fig.update_layout(
-        plot_bgcolor=COLOR_BG,
-        paper_bgcolor=COLOR_BG,
-        font=dict(color=COLOR_TEXT),
+        plot_bgcolor=COLOR_BG, paper_bgcolor=COLOR_BG, font=dict(color=COLOR_TEXT),
         margin=dict(l=0, r=0, t=0, b=0),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        height=750,
-        dragmode='pan',
-        hoverlabel=dict(
-            bgcolor=COLOR_SURFACE,
-            font_size=13,
-            font_family="Arial",
-            bordercolor=COLOR_ACCENT
-        ),
+        height=750, dragmode='pan',
+        hoverlabel=dict(bgcolor=COLOR_SURFACE, font_size=13, font_family="Arial", bordercolor=COLOR_ACCENT),
         hovermode='closest'
     )
-
-    st.plotly_chart(fig, use_container_width=True, config={
-        'scrollZoom': True,
-        'displayModeBar': True,
-        'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
-        'displaylogo': False
-    })
-
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
 
 # ============================================================================
-# 6. GRAVITATIONAL WEB (Seller-Customer Ecosystem - Tab 5)
+# 6. GRAVITATIONAL WEB (Seller-Customer)
 # ============================================================================
 def draw_plotly_ecosystem(df):
     unique_pairs = df[['Seller Name', 'Phone']].drop_duplicates()
-    if unique_pairs.empty:
-        st.warning("No data available to build the ecosystem.")
-        return
+    if unique_pairs.empty: return
 
     seller_cust_counts = unique_pairs['Seller Name'].value_counts()
     max_seller_count = seller_cust_counts.max() if not seller_cust_counts.empty else 1
     sorted_sellers = seller_cust_counts.index.tolist()
     
     golden_angle = math.pi * (3 - math.sqrt(5))
-    
     seller_coords = {}
     for i, s in enumerate(sorted_sellers):
         radius = 40 * math.sqrt(i) 
         angle = i * golden_angle
-        sx = radius * math.cos(angle)
-        sy = radius * math.sin(angle)
-        seller_coords[s] = (sx, sy)
+        seller_coords[s] = (radius * math.cos(angle), radius * math.sin(angle))
         
     cust_to_sellers = unique_pairs.groupby('Phone')['Seller Name'].apply(list).to_dict()
 
@@ -409,10 +368,7 @@ def draw_plotly_ecosystem(df):
         s_x.append(x)
         s_y.append(y)
         count = seller_cust_counts.get(s, 0)
-        
-        calculated_size = 12 + ((count / max_seller_count) * 45)
-        s_size.append(calculated_size)
-        
+        s_size.append(12 + ((count / max_seller_count) * 45))
         s_hover.append(f"<b>Seller:</b> {s}<br><b>Customers:</b> {count}")
 
     for cust, linked_sellers in cust_to_sellers.items():
@@ -430,9 +386,7 @@ def draw_plotly_ecosystem(df):
             
         c_x.append(cx)
         c_y.append(cy)
-        
-        shared_text = ", ".join([str(s)[:15] for s in linked_sellers])
-        c_hover.append(f"<b>Customer:</b> {cust}<br><b>Buys From:</b> {shared_text}")
+        c_hover.append(f"<b>Customer:</b> {cust}<br><b>Buys From:</b> {', '.join([str(s)[:15] for s in linked_sellers])}")
         
         for s in linked_sellers:
             sx, sy = seller_coords[s]
@@ -442,63 +396,39 @@ def draw_plotly_ecosystem(df):
     fig = go.Figure()
 
     fig.add_trace(go.Scattergl(
-        x=edge_x, y=edge_y,
-        mode='lines',
-        line=dict(width=0.35, color=COLOR_EDGE),
-        hoverinfo='none',
-        showlegend=False
+        x=edge_x, y=edge_y, mode='lines',
+        line=dict(width=0.35, color=COLOR_EDGE), hoverinfo='none', showlegend=False
     ))
 
     fig.add_trace(go.Scattergl(
-        x=c_x, y=c_y,
-        mode='markers',
-        marker=dict(size=6, color=COLOR_TEXT, line=dict(width=0.5, color=COLOR_BG)),
-        customdata=c_hover,
-        hovertemplate="%{customdata}<extra></extra>",
-        name='Customers'
+        x=c_x, y=c_y, mode='markers',
+        marker=dict(size=6, color="#666666", line=dict(width=0.5, color=COLOR_BG)),
+        customdata=c_hover, hovertemplate="%{customdata}<extra></extra>", name='Customers'
     ))
 
     fig.add_trace(go.Scattergl(
-        x=s_x, y=s_y,
-        mode='markers',
+        x=s_x, y=s_y, mode='markers',
         marker=dict(size=s_size, color=COLOR_ACCENT, line=dict(width=1.5, color=COLOR_TEXT)),
-        customdata=s_hover,
-        hovertemplate="%{customdata}<extra></extra>",
-        name='Sellers'
+        customdata=s_hover, hovertemplate="%{customdata}<extra></extra>", name='Sellers'
     ))
 
     fig.update_layout(
-        plot_bgcolor=COLOR_BG,
-        paper_bgcolor=COLOR_BG,
-        font=dict(color=COLOR_TEXT),
+        plot_bgcolor=COLOR_BG, paper_bgcolor=COLOR_BG, font=dict(color=COLOR_TEXT),
         margin=dict(l=0, r=0, t=0, b=0),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        height=750,
-        dragmode='pan',
-        hoverlabel=dict(
-            bgcolor=COLOR_SURFACE,
-            font_size=13,
-            font_family="Arial",
-            bordercolor=COLOR_ACCENT
-        ),
+        height=750, dragmode='pan',
+        hoverlabel=dict(bgcolor=COLOR_SURFACE, font_size=13, font_family="Arial", bordercolor=COLOR_ACCENT),
         hovermode='closest'
     )
-
-    st.plotly_chart(fig, use_container_width=True, config={
-        'scrollZoom': True,
-        'displayModeBar': True,
-        'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
-        'displaylogo': False
-    })
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
 
 
 # ============================================================================
-# 7. CUSTOMER CHURN ENGINE
+# 7. CUSTOMER CHURN ENGINE & ML PREDICTION
 # ============================================================================
 def calculate_churn_rfm(df):
-    if df.empty:
-        return pd.DataFrame()
+    if df.empty: return pd.DataFrame(), 0.0
         
     snapshot_date = df['Order Date'].max() + pd.Timedelta(days=1)
     
@@ -521,7 +451,33 @@ def calculate_churn_rfm(df):
             return "At Risk (Needs Nurturing)"
             
     churn_df['Churn Risk Profile'] = churn_df.apply(assign_risk, axis=1)
-    return churn_df
+    
+    # -------------------------------------------------------------
+    # MACHINE LEARNING: RANDOM FOREST PREDICTION
+    # Target definition: 1 if user hasn't bought in 90+ days, else 0
+    # -------------------------------------------------------------
+    churn_df['Target_Churn'] = (churn_df['Recency_Days'] > 90).astype(int)
+    
+    X = churn_df[['Frequency', 'Recency_Days', 'Total_Spend']]
+    y = churn_df['Target_Churn']
+    
+    # Train a lightweight Random Forest model on the fly
+    rf = RandomForestClassifier(n_estimators=100, random_state=42, max_depth=5)
+    rf.fit(X, y)
+    
+    # Predict probability of churn for each customer
+    churn_df['ML_Churn_Probability'] = rf.predict_proba(X)[:, 1]
+    
+    # Format probability as a clean percentage
+    churn_df['ML_Churn_Probability'] = (churn_df['ML_Churn_Probability'] * 100).round(1).astype(str) + "%"
+    
+    # Calculate overall predicted churn rate across the database
+    overall_churn_rate = (y.sum() / len(y)) * 100
+    
+    # Drop the temporary target column to keep the table clean
+    churn_df = churn_df.drop(columns=['Target_Churn'])
+    
+    return churn_df, overall_churn_rate
 
 # ============================================================================
 # 8. MAIN DASHBOARD INTERFACE
@@ -529,9 +485,6 @@ def calculate_churn_rfm(df):
 def main():
     st.title("E-Commerce Intelligence: SNA & Churn")
     
-    # ---------------------------------------------------------
-    # HARDCODED DATASET PATH (NO UPLOADER)
-    # ---------------------------------------------------------
     DATA_FILE = "RockHerb_Full.xlsx"
     
     if not os.path.exists(DATA_FILE):
@@ -542,7 +495,6 @@ def main():
         raw_df = load_and_clean_data(DATA_FILE)
         
     if raw_df is None: return
-    # ---------------------------------------------------------
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("Time Filters")
@@ -552,9 +504,7 @@ def main():
     
     if selected_year != "All Years":
         df = raw_df[raw_df['Order Date'].dt.year == selected_year]
-        
         selected_quarter = st.sidebar.selectbox("Filter by Quarter", ["All Quarters", "Q1", "Q2", "Q3", "Q4"])
-        
         if selected_quarter != "All Quarters":
             q_map = {"Q1": [1, 2, 3], "Q2": [4, 5, 6], "Q3": [7, 8, 9], "Q4": [10, 11, 12]}
             df = df[df['Order Date'].dt.month.isin(q_map[selected_quarter])]
@@ -584,7 +534,6 @@ def main():
     
     with tab1:
         st.subheader("Seller Performance Network")
-        
         seller_list = sorted(df['Seller Name'].unique().tolist())
         selected_seller = st.selectbox("Select a Seller to view specific performance:", ["-- Select --"] + seller_list)
         
@@ -594,56 +543,54 @@ def main():
                 st.markdown(f"**Customer Map: {selected_seller}**")
                 draw_single_seller_network(selected_seller, df)
             
-        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate higher connections, Red indicates fewer.")
+        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. Red nodes indicate hubs.")
         seller_net = build_network(df, node_col='Seller Name', edge_group_col='Phone')
         draw_spiderweb_network(seller_net, "seller", "Seller:")
 
     with tab2:
         st.subheader("Product Lifetime Value Network")
-        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate higher connections, Red indicates fewer.")
-        
+        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm.")
         exploded_df_prod = explode_products(df)
         exploded_df_prod['Month_Str'] = exploded_df_prod['Order Date'].dt.strftime('%Y-%m')
-        
         prod_net = build_network(exploded_df_prod, node_col='Clean_Product', edge_group_col='Month_Str', max_cap=80)
         draw_spiderweb_network(prod_net, "product", "Prod:")
 
     with tab3:
         st.subheader("Customer Loyalty Network")
-        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate higher connections, Red indicates fewer.")
-        
+        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm.")
         exploded_df_cust = explode_products(df)
-        
         cust_net = build_network(exploded_df_cust, node_col='Phone', edge_group_col='Clean_Product', max_cap=80) 
         draw_spiderweb_network(cust_net, "customer", "Cust:")
 
     with tab4:
         st.subheader("State-Customer Distribution Network")
-        st.caption("Logic: Gravitational Web mapping Demographic States (Red Hubs) directly to buying Customers (White Satellites). Hub size is driven by total customers.")
         draw_plotly_state_customer(df)
         
     with tab5:
         st.subheader("Seller-Customer Ecosystem")
-        st.caption("Logic: Organic Gravitational Spiral. Seller Hub size is driven by total customers. Click or hover on red hubs to see details.")
         draw_plotly_ecosystem(df)
 
     with tab6:
-        st.subheader("Customer Churn Forecasting (Frequency Based)")
-        churn_df = calculate_churn_rfm(df)
+        st.subheader("Customer Churn Forecasting (RFM & Random Forest ML)")
+        churn_df, overall_churn_rate = calculate_churn_rfm(df)
+        
+        # New Metric Card displaying the AI Prediction Rate
+        st.metric("Predicted Overall Customer Churn Rate", f"{overall_churn_rate:.1f}%", 
+                  help="Calculated by Random Forest Machine Learning Model based on customer lifetime spend, recency, and order frequency.",
+                  delta_color="inverse")
         
         c_left, c_right = st.columns([1, 2])
         
         with c_left:
             risk_counts = churn_df['Churn Risk Profile'].value_counts().reset_index()
             risk_counts.columns = ['Profile', 'Count']
-            
             st.dataframe(risk_counts, use_container_width=True, hide_index=True)
             
         with c_right:
             fig, ax = plt.subplots(figsize=(8, 4), facecolor=COLOR_BG)
             ax.set_facecolor(COLOR_BG)
             
-            ax.bar(risk_counts['Profile'], risk_counts['Count'], color=COLOR_ACCENT, edgecolor=COLOR_TEXT)
+            ax.bar(risk_counts['Profile'], risk_counts['Count'], color=COLOR_ACCENT, edgecolor=COLOR_EDGE)
             
             ax.set_title("Customer Distribution by Risk Profile", color=COLOR_TEXT)
             ax.tick_params(colors=COLOR_TEXT)
@@ -653,9 +600,8 @@ def main():
             st.pyplot(fig)
             
         st.markdown("---")
-        st.markdown("**🔍 View Customers by Risk Profile**")
+        st.markdown("**🔍 View Customers by Risk Profile & AI Probability**")
         
-        # New Interactive Dropdown for specific customer lists
         profiles = ["All Profiles"] + churn_df['Churn Risk Profile'].unique().tolist()
         selected_profile = st.selectbox("Select a Risk Level to filter the customer list below:", profiles)
         
@@ -664,7 +610,7 @@ def main():
         else:
             display_df = churn_df[churn_df['Churn Risk Profile'] == selected_profile].sort_values(by='Recency_Days', ascending=False)
             
-        st.dataframe(display_df, use_container_width=True)
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()
