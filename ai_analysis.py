@@ -82,13 +82,12 @@ def load_and_clean_data(file_path):
 
         df = df.dropna(subset=['Order ID', 'Seller Name', 'Phone', 'Order Date', 'Grand Total', 'State'])
         
-        # Strip strings and remove any stray quotes that could break JavaScript rendering
-        df['Seller Name'] = df['Seller Name'].astype(str).str.strip().str.replace(r'["\']', '', regex=True)
+        df['Seller Name'] = df['Seller Name'].astype(str).str.strip()
         
         if 'Quantity X Product' in df.columns:
-            df['Base_Product'] = df['Quantity X Product'].astype(str).str.strip().str.replace(r'["\']', '', regex=True)
+            df['Base_Product'] = df['Quantity X Product'].astype(str).str.strip()
         else:
-            df['Base_Product'] = df['Product'].astype(str).str.strip().str.replace(r'["\']', '', regex=True)
+            df['Base_Product'] = df['Product'].astype(str).str.strip()
             
         df['Phone'] = df['Phone'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         
@@ -160,12 +159,12 @@ def draw_single_seller_network(seller_name, df):
         
         if node == seller_name:
             net.add_node(
-                node, label=node, size=75, x=x, y=y,
+                node, label=node, size=45, x=x, y=y, # Scaled single seller up 1.5x
                 color={"background": COLOR_ACCENT, "border": COLOR_ACCENT}
             )
         else:
             net.add_node(
-                node, label=node, size=25, x=x, y=y,
+                node, label=node, size=15, x=x, y=y, # Scaled customers up 1.5x
                 color={"background": "#e0e0e0", "border": COLOR_EDGE}
             )
             net.add_edge(seller_name, node, color={"color": COLOR_EDGE, "opacity": 0.6})
@@ -242,11 +241,11 @@ def draw_spiderweb_network(G, title, prefix):
         # Isolated node explicit black logic
         if deg == 0:
             node_color = "#000000"
-            size = 40 # Set to exactly 40 as requested
+            size = 12 # Scaled 150% larger (from 8)
         else:
             heat_ratio = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
             node_color = mcolors.to_hex(cmap(heat_ratio))
-            size = 25 + (62.5 * heat_ratio) 
+            size = 15 + (38 * heat_ratio) # Scaled 150% larger (from 10 base and 25 multiplier)
             
         x = float(pos[node][0]) * 7500
         y = float(pos[node][1]) * 7500
@@ -457,6 +456,7 @@ def draw_plotly_ecosystem(df):
     )
     st.plotly_chart(fig, width='stretch', config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
 
+
 # ============================================================================
 # 7. CUSTOMER CHURN ENGINE (RFM ONLY)
 # ============================================================================
@@ -562,7 +562,6 @@ def main():
                 draw_single_seller_network(selected_seller, df)
             
         st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate hubs. Red indicates fewer connections. Black dots are isolated sellers with 0 shared customers.")
-        # Added include_isolated=True for this specific map
         seller_net = build_network(df, node_col='Seller Name', edge_group_col='Phone', include_isolated=True)
         draw_spiderweb_network(seller_net, "seller", "Seller:")
 
