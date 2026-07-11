@@ -60,6 +60,27 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # ============================================================================
+# 1.5 PERFORMANCE HELPERS
+# ============================================================================
+# Streamlit re-runs the whole script top-to-bottom on every widget interaction
+# (switching tabs, picking a seller, changing a filter, etc). Several pieces
+# of this app were being fully recomputed on every single rerun even though
+# their inputs hadn't changed. @st.cache_data memoizes those pieces so repeat
+# reruns with the same inputs are served instantly instead of recomputed.
+
+@st.cache_data(show_spinner=False)
+def _cached_spring_layout(nodes, edges, k=1.5, iterations=100, seed=42):
+    """Rebuilds a minimal graph from hashable (nodes, edges) tuples and runs
+    spring_layout. Caching this directly avoids re-running the expensive
+    force-directed layout algorithm every time the app reruns for an
+    unchanged graph. Inputs are primitives (tuples) rather than the nx.Graph
+    object itself, so Streamlit can hash them quickly and reliably."""
+    H = nx.Graph()
+    H.add_nodes_from(nodes)
+    H.add_weighted_edges_from(edges)
+    return nx.spring_layout(H, k=k, iterations=iterations, seed=seed)
+
+# ============================================================================
 # 2. DATA INGESTION ENGINE
 # ============================================================================
 @st.cache_data
@@ -100,6 +121,7 @@ def load_and_clean_data(file_path):
         st.error(f"Data Loading Error: {e}")
         return None
 
+@st.cache_data(show_spinner=False)
 def explode_products(df):
     temp_df = df.copy()
     temp_df['Clean_Product'] = temp_df['Base_Product'].astype(str).str.split(',')
@@ -148,8 +170,10 @@ def draw_single_seller_network(seller_name, df):
     G.add_node(seller_name)
     for cust in customers:
         G.add_edge(seller_name, str(cust))
-        
-    pos = nx.spring_layout(G, k=1.5, iterations=100, seed=42)
+
+    nodes_tuple = tuple(G.nodes())
+    edges_tuple = tuple((u, v, d.get('weight', 1)) for u, v, d in G.edges(data=True))
+    pos = _cached_spring_layout(nodes_tuple, edges_tuple, k=1.5, iterations=100, seed=42)
 
     net = Network(height='450px', width='100%', bgcolor=COLOR_BG, font_color=COLOR_TEXT, directed=False)
     
@@ -176,24 +200,22 @@ def draw_single_seller_network(seller_name, df):
       "edges": {{ "smooth": false }}
     }}
     """)
-    
-    html_file = f"net_single_seller.html"
-    net.save_graph(html_file)
-    
-    with open(html_file, 'r', encoding='utf-8') as f:
-        html_source = f.read()
-    
+
+    # generate_html() returns exactly the same string save_graph() would have
+    # written to disk - so we get identical output without a temp-file
+    # write/read/delete round trip on every render.
+    html_source = net.generate_html(notebook=False)
+
     b64 = base64.b64encode(html_source.encode('utf-8')).decode('utf-8')
     st.markdown(
         f'<iframe src="data:text/html;base64,{b64}" width="100%" height="470px" style="border:none;"></iframe>',
         unsafe_allow_html=True
     )
-    
-    os.remove(html_file)
 
 # ============================================================================
 # 4. UNIVERSAL UNIPARTITE SNA BUILDER
 # ============================================================================
+@st.cache_data(show_spinner=False)
 def build_network(df, node_col, edge_group_col, max_cap=100, include_isolated=False):
     G = nx.Graph()
     
@@ -203,12 +225,18 @@ def build_network(df, node_col, edge_group_col, max_cap=100, include_isolated=Fa
         G.add_nodes_from(all_unique_nodes)
         
     grouped = df.groupby(edge_group_col)[node_col].unique()
-    
+
+    # Seeded RNG: identical inputs now always produce the identical sampled
+    # subset (previously np.random.choice used the global unseeded state, so
+    # the graph could reshuffle on every rerun even for unchanged data). This
+    # also makes the function safe to cache.
+    rng = np.random.default_rng(42)
+
     edge_weights = {}
     for items in grouped:
         if len(items) > 1:
             if len(items) > max_cap:
-                items = np.random.choice(items, max_cap, replace=False)
+                items = rng.choice(items, max_cap, replace=False)
             for n1, n2 in combinations(sorted(items), 2):
                 edge_weights[(n1, n2)] = edge_weights.get((n1, n2), 0) + 1
                 
@@ -222,11 +250,15 @@ def draw_spiderweb_network(G, title, prefix):
         return
         
     if len(G.nodes()) > 250:
-        top_nodes = sorted(dict(G.degree()), key=dict(G.degree()).get, reverse=True)[:250]
+        full_degree = dict(G.degree())
+        top_nodes = sorted(full_degree, key=full_degree.get, reverse=True)[:250]
         G = G.subgraph(top_nodes).copy()
-        
+
     net = Network(height='600px', width='100%', bgcolor=COLOR_BG, font_color=COLOR_TEXT, directed=False)
-    pos = nx.spring_layout(G, k=1.5, iterations=200, seed=42)
+
+    nodes_tuple = tuple(G.nodes())
+    edges_tuple = tuple((u, v, d.get('weight', 1)) for u, v, d in G.edges(data=True))
+    pos = _cached_spring_layout(nodes_tuple, edges_tuple, k=1.5, iterations=200, seed=42)
     
     degree_dict = dict(G.degree())
     max_degree = max(degree_dict.values()) if degree_dict else 1
@@ -237,7 +269,8 @@ def draw_spiderweb_network(G, title, prefix):
     
     for node in G.nodes():
         deg = degree_dict.get(node, 0)
-        
+        heat_ratio = 0.0
+
         # Isolated node explicit black logic
         if deg == 0:
             node_color = "#000000"
@@ -268,20 +301,14 @@ def draw_spiderweb_network(G, title, prefix):
       "edges": {{ "smooth": false }} 
     }}
     """)
-    
-    html_file = f"net_{title}.html"
-    net.save_graph(html_file)
-    
-    with open(html_file, 'r', encoding='utf-8') as f:
-        html_source = f.read()
-        
+
+    html_source = net.generate_html(notebook=False)
+
     b64 = base64.b64encode(html_source.encode('utf-8')).decode('utf-8')
     st.markdown(
         f'<iframe src="data:text/html;base64,{b64}" width="100%" height="620px" style="border:none;"></iframe>',
         unsafe_allow_html=True
     )
-    
-    os.remove(html_file)
 
 # ============================================================================
 # 5. GRAVITATIONAL WEB (State-Customer)
@@ -295,40 +322,57 @@ def draw_plotly_state_customer(df):
     sorted_states = state_cust_counts.index.tolist()
     
     golden_angle = math.pi * (3 - math.sqrt(5))
-    
-    state_coords = {}
-    for i, s in enumerate(sorted_states):
-        radius = 75 * math.sqrt(i) 
-        angle = i * golden_angle
-        state_coords[s] = (radius * math.cos(angle), radius * math.sin(angle))
-        
-    cust_to_states = unique_pairs.groupby('Phone')['State'].apply(list).to_dict()
 
-    edge_x, edge_y = [], []
-    s_x, s_y, s_labels, s_hover, s_size = [], [], [], [], []
+    # Vectorized spiral layout (previously a per-state Python loop)
+    idx = np.arange(len(sorted_states))
+    radii = 75 * np.sqrt(idx)
+    angles = idx * golden_angle
+    state_x_arr = radii * np.cos(angles)
+    state_y_arr = radii * np.sin(angles)
+    state_coords = {s: (float(state_x_arr[i]), float(state_y_arr[i])) for i, s in enumerate(sorted_states)}
+
+    counts_arr = state_cust_counts.values.astype(float)
+    s_x = state_x_arr.tolist()
+    s_y = state_y_arr.tolist()
+    s_size = (18 + (counts_arr / max_state_count) * 50).tolist()
+    s_labels = [str(s) for s in sorted_states]
+    s_hover = [f"<b>State:</b> {s}<br><b>Customers:</b> {int(c)}" for s, c in zip(sorted_states, counts_arr)]
+
+    cust_to_states = unique_pairs.groupby('Phone')['State'].apply(list)
+    single_mask = cust_to_states.apply(len) == 1
+
     c_x, c_y, c_hover = [], [], []
+    edge_x, edge_y = [], []
 
-    for s in sorted_states:
-        x, y = state_coords[s]
-        s_x.append(x)
-        s_y.append(y)
-        count = state_cust_counts.get(s, 0)
-        s_size.append(18 + ((count / max_state_count) * 50))
-        s_labels.append(str(s)) 
-        s_hover.append(f"<b>State:</b> {s}<br><b>Customers:</b> {count}")
+    # Vectorized path for customers linked to exactly one state (the common case):
+    # bulk-generate all the random jitter with numpy instead of one
+    # random.uniform() call per customer.
+    single_series = cust_to_states[single_mask]
+    if not single_series.empty:
+        single_customers = single_series.index.to_numpy()
+        single_states = np.array([states[0] for states in single_series.values], dtype=object)
+        n = len(single_customers)
+        r = np.random.uniform(10, 50, size=n)
+        theta = np.random.uniform(0, 2 * math.pi, size=n)
+        base_x = np.array([state_coords[s][0] for s in single_states])
+        base_y = np.array([state_coords[s][1] for s in single_states])
+        cx_arr = base_x + r * np.cos(theta)
+        cy_arr = base_y + r * np.sin(theta)
 
-    for cust, linked_states in cust_to_states.items():
-        if len(linked_states) == 1:
-            sx, sy = state_coords[linked_states[0]]
-            r = random.uniform(10, 50) 
-            theta = random.uniform(0, 2 * math.pi)
-            cx = sx + r * math.cos(theta)
-            cy = sy + r * math.sin(theta)
-        else:
-            cx = sum(state_coords[s][0] for s in linked_states) / len(linked_states)
-            cy = sum(state_coords[s][1] for s in linked_states) / len(linked_states)
-            cx += random.uniform(-7.5, 7.5)
-            cy += random.uniform(-7.5, 7.5)
+        c_x.extend(cx_arr.tolist())
+        c_y.extend(cy_arr.tolist())
+        for cust, s, cx, cy in zip(single_customers, single_states, cx_arr, cy_arr):
+            c_hover.append(f"<b>Customer:</b> {cust}<br><b>States:</b> {s}")
+            sx, sy = state_coords[s]
+            edge_x.extend([sx, cx, None])
+            edge_y.extend([sy, cy, None])
+
+    # Remaining customers linked to multiple states (typically a small minority)
+    for cust, linked_states in cust_to_states[~single_mask].items():
+        cx = sum(state_coords[s][0] for s in linked_states) / len(linked_states)
+        cy = sum(state_coords[s][1] for s in linked_states) / len(linked_states)
+        cx += random.uniform(-7.5, 7.5)
+        cy += random.uniform(-7.5, 7.5)
             
         c_x.append(cx)
         c_y.append(cy)
@@ -384,38 +428,51 @@ def draw_plotly_ecosystem(df):
     sorted_sellers = seller_cust_counts.index.tolist()
     
     golden_angle = math.pi * (3 - math.sqrt(5))
-    seller_coords = {}
-    for i, s in enumerate(sorted_sellers):
-        radius = 40 * math.sqrt(i) 
-        angle = i * golden_angle
-        seller_coords[s] = (radius * math.cos(angle), radius * math.sin(angle))
-        
-    cust_to_sellers = unique_pairs.groupby('Phone')['Seller Name'].apply(list).to_dict()
 
-    edge_x, edge_y = [], []
-    s_x, s_y, s_hover, s_size = [], [], [], []
+    idx = np.arange(len(sorted_sellers))
+    radii = 40 * np.sqrt(idx)
+    angles = idx * golden_angle
+    seller_x_arr = radii * np.cos(angles)
+    seller_y_arr = radii * np.sin(angles)
+    seller_coords = {s: (float(seller_x_arr[i]), float(seller_y_arr[i])) for i, s in enumerate(sorted_sellers)}
+
+    counts_arr = seller_cust_counts.values.astype(float)
+    s_x = seller_x_arr.tolist()
+    s_y = seller_y_arr.tolist()
+    s_size = (12 + (counts_arr / max_seller_count) * 45).tolist()
+    s_hover = [f"<b>Seller:</b> {s}<br><b>Customers:</b> {int(c)}" for s, c in zip(sorted_sellers, counts_arr)]
+
+    cust_to_sellers = unique_pairs.groupby('Phone')['Seller Name'].apply(list)
+    single_mask = cust_to_sellers.apply(len) == 1
+
     c_x, c_y, c_hover = [], [], []
+    edge_x, edge_y = [], []
 
-    for s in sorted_sellers:
-        x, y = seller_coords[s]
-        s_x.append(x)
-        s_y.append(y)
-        count = seller_cust_counts.get(s, 0)
-        s_size.append(12 + ((count / max_seller_count) * 45))
-        s_hover.append(f"<b>Seller:</b> {s}<br><b>Customers:</b> {count}")
+    single_series = cust_to_sellers[single_mask]
+    if not single_series.empty:
+        single_customers = single_series.index.to_numpy()
+        single_sellers = np.array([sellers[0] for sellers in single_series.values], dtype=object)
+        n = len(single_customers)
+        r = np.random.uniform(10, 30, size=n)
+        theta = np.random.uniform(0, 2 * math.pi, size=n)
+        base_x = np.array([seller_coords[s][0] for s in single_sellers])
+        base_y = np.array([seller_coords[s][1] for s in single_sellers])
+        cx_arr = base_x + r * np.cos(theta)
+        cy_arr = base_y + r * np.sin(theta)
 
-    for cust, linked_sellers in cust_to_sellers.items():
-        if len(linked_sellers) == 1:
-            sx, sy = seller_coords[linked_sellers[0]]
-            r = random.uniform(10, 30) 
-            theta = random.uniform(0, 2 * math.pi)
-            cx = sx + r * math.cos(theta)
-            cy = sy + r * math.sin(theta)
-        else:
-            cx = sum(seller_coords[s][0] for s in linked_sellers) / len(linked_sellers)
-            cy = sum(seller_coords[s][1] for s in linked_sellers) / len(linked_sellers)
-            cx += random.uniform(-7.5, 7.5)
-            cy += random.uniform(-7.5, 7.5)
+        c_x.extend(cx_arr.tolist())
+        c_y.extend(cy_arr.tolist())
+        for cust, s, cx, cy in zip(single_customers, single_sellers, cx_arr, cy_arr):
+            c_hover.append(f"<b>Customer:</b> {cust}<br><b>Buys From:</b> {str(s)[:15]}")
+            sx, sy = seller_coords[s]
+            edge_x.extend([sx, cx, None])
+            edge_y.extend([sy, cy, None])
+
+    for cust, linked_sellers in cust_to_sellers[~single_mask].items():
+        cx = sum(seller_coords[s][0] for s in linked_sellers) / len(linked_sellers)
+        cy = sum(seller_coords[s][1] for s in linked_sellers) / len(linked_sellers)
+        cx += random.uniform(-7.5, 7.5)
+        cy += random.uniform(-7.5, 7.5)
             
         c_x.append(cx)
         c_y.append(cy)
@@ -460,6 +517,7 @@ def draw_plotly_ecosystem(df):
 # ============================================================================
 # 7. CUSTOMER CHURN ENGINE (RFM ONLY)
 # ============================================================================
+@st.cache_data(show_spinner=False)
 def calculate_churn_rfm(df):
     if df.empty: return pd.DataFrame(), 0.0
         
@@ -472,18 +530,17 @@ def calculate_churn_rfm(df):
     ).reset_index()
     
     churn_df['Recency_Days'] = (snapshot_date - churn_df['Last_Purchase']).dt.days
-    
-    def assign_risk(row):
-        if row['Frequency'] >= 3 and row['Recency_Days'] <= 60:
-            return "Active & Loyal"
-        elif row['Frequency'] == 1 and row['Recency_Days'] > 90:
-            return "High Risk (One-Off)"
-        elif row['Frequency'] >= 2 and row['Recency_Days'] > 90:
-            return "Churned (Lost Repeat)"
-        else:
-            return "At Risk (Needs Nurturing)"
-            
-    churn_df['Churn Risk Profile'] = churn_df.apply(assign_risk, axis=1)
+
+    # Vectorized risk classification (replaces a row-wise .apply, which does
+    # not scale well as the customer base grows). Conditions are evaluated in
+    # the same order as the original if/elif chain, so results are identical.
+    conditions = [
+        (churn_df['Frequency'] >= 3) & (churn_df['Recency_Days'] <= 60),
+        (churn_df['Frequency'] == 1) & (churn_df['Recency_Days'] > 90),
+        (churn_df['Frequency'] >= 2) & (churn_df['Recency_Days'] > 90),
+    ]
+    choices = ["Active & Loyal", "High Risk (One-Off)", "Churned (Lost Repeat)"]
+    churn_df['Churn Risk Profile'] = np.select(conditions, choices, default="At Risk (Needs Nurturing)")
     
     # Calculate pure math-based churn rate
     at_risk_count = churn_df[churn_df['Churn Risk Profile'].isin(['High Risk (One-Off)', 'Churned (Lost Repeat)'])].shape[0]
