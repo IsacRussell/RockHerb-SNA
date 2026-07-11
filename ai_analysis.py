@@ -6,10 +6,10 @@ import matplotlib.colors as mcolors
 import os
 import math
 import random
-import base64
 from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
+import streamlit.components.v1 as components
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -82,12 +82,12 @@ def load_and_clean_data(file_path):
 
         df = df.dropna(subset=['Order ID', 'Seller Name', 'Phone', 'Order Date', 'Grand Total', 'State'])
         
-        df['Seller Name'] = df['Seller Name'].astype(str).str.strip()
+        df['Seller Name'] = df['Seller Name'].astype(str).str.strip().str.replace(r'["\']', '', regex=True)
         
         if 'Quantity X Product' in df.columns:
-            df['Base_Product'] = df['Quantity X Product'].astype(str).str.strip()
+            df['Base_Product'] = df['Quantity X Product'].astype(str).str.strip().str.replace(r'["\']', '', regex=True)
         else:
-            df['Base_Product'] = df['Product'].astype(str).str.strip()
+            df['Base_Product'] = df['Product'].astype(str).str.strip().str.replace(r'["\']', '', regex=True)
             
         df['Phone'] = df['Phone'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         
@@ -159,12 +159,12 @@ def draw_single_seller_network(seller_name, df):
         
         if node == seller_name:
             net.add_node(
-                node, label=node, size=30, x=x, y=y,
+                node, label=node, size=75, x=x, y=y,
                 color={"background": COLOR_ACCENT, "border": COLOR_ACCENT}
             )
         else:
             net.add_node(
-                node, label=node, size=10, x=x, y=y,
+                node, label=node, size=25, x=x, y=y,
                 color={"background": "#e0e0e0", "border": COLOR_EDGE}
             )
             net.add_edge(seller_name, node, color={"color": COLOR_EDGE, "opacity": 0.6})
@@ -183,12 +183,7 @@ def draw_single_seller_network(seller_name, df):
     with open(html_file, 'r', encoding='utf-8') as f:
         html_source = f.read()
     
-    b64 = base64.b64encode(html_source.encode('utf-8')).decode('utf-8')
-    st.markdown(
-        f'<iframe src="data:text/html;base64,{b64}" width="100%" height="470px" style="border:none;"></iframe>',
-        unsafe_allow_html=True
-    )
-    
+    components.html(html_source, height=470)
     os.remove(html_file)
 
 # ============================================================================
@@ -198,7 +193,6 @@ def build_network(df, node_col, edge_group_col, max_cap=100, include_isolated=Fa
     G = nx.Graph()
     
     if include_isolated:
-        # Guarantee all nodes are present, even if they have 0 shared edges
         all_unique_nodes = df[node_col].unique()
         G.add_nodes_from(all_unique_nodes)
         
@@ -232,20 +226,18 @@ def draw_spiderweb_network(G, title, prefix):
     max_degree = max(degree_dict.values()) if degree_dict else 1
     min_degree = min(degree_dict.values()) if degree_dict else 1
     
-    # Corrected Colormap: Red (Low Degree) -> Pink -> White (High Degree/Hubs)
     cmap = mcolors.LinearSegmentedColormap.from_list("connection_heatmap", [COLOR_ACCENT, "#ffb3b3", "#ffffff"])
     
     for node in G.nodes():
         deg = degree_dict.get(node, 0)
         
-        # Isolated node explicit black logic
         if deg == 0:
             node_color = "#000000"
-            size = 8
+            size = 40
         else:
             heat_ratio = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
             node_color = mcolors.to_hex(cmap(heat_ratio))
-            size = 10 + (25 * heat_ratio) 
+            size = 25 + (62.5 * heat_ratio) 
             
         x = float(pos[node][0]) * 7500
         y = float(pos[node][1]) * 7500
@@ -255,7 +247,7 @@ def draw_spiderweb_network(G, title, prefix):
             label=f"{str(node)[:10]}.." if (deg > 0 and heat_ratio < 0.5) else f"{str(node)[:15]}",
             title=f"{prefix} {node}\nConnections: {deg}", 
             size=size, x=x, y=y,
-            color={"background": node_color, "border": COLOR_EDGE} # Gray border ensures white nodes are visible
+            color={"background": node_color, "border": COLOR_EDGE} 
         )
         
     for u, v, d in G.edges(data=True):
@@ -275,12 +267,7 @@ def draw_spiderweb_network(G, title, prefix):
     with open(html_file, 'r', encoding='utf-8') as f:
         html_source = f.read()
         
-    b64 = base64.b64encode(html_source.encode('utf-8')).decode('utf-8')
-    st.markdown(
-        f'<iframe src="data:text/html;base64,{b64}" width="100%" height="620px" style="border:none;"></iframe>',
-        unsafe_allow_html=True
-    )
-    
+    components.html(html_source, height=620)
     os.remove(html_file)
 
 # ============================================================================
@@ -456,7 +443,6 @@ def draw_plotly_ecosystem(df):
     )
     st.plotly_chart(fig, width='stretch', config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
 
-
 # ============================================================================
 # 7. CUSTOMER CHURN ENGINE (RFM ONLY)
 # ============================================================================
@@ -570,6 +556,7 @@ def main():
         st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate hubs. Red indicates fewer connections.")
         exploded_df_prod = explode_products(df)
         exploded_df_prod['Month_Str'] = exploded_df_prod['Order Date'].dt.strftime('%Y-%m')
+        
         prod_net = build_network(exploded_df_prod, node_col='Clean_Product', edge_group_col='Month_Str', max_cap=80)
         draw_spiderweb_network(prod_net, "product", "Prod:")
 
@@ -577,6 +564,7 @@ def main():
         st.subheader("Customer Loyalty Network")
         st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate hubs. Red indicates fewer connections.")
         exploded_df_cust = explode_products(df)
+        
         cust_net = build_network(exploded_df_cust, node_col='Phone', edge_group_col='Clean_Product', max_cap=80) 
         draw_spiderweb_network(cust_net, "customer", "Cust:")
 
