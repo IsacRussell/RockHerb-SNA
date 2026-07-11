@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import networkx as nx
 import numpy as np
-import matplotlib.colors as mcolors # Kept ONLY for color math, perfectly safe
+import matplotlib.colors as mcolors
 import os
 import math
 import random
@@ -10,7 +10,6 @@ import base64
 from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
-from sklearn.ensemble import RandomForestClassifier
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -446,7 +445,7 @@ def draw_plotly_ecosystem(df):
 
 
 # ============================================================================
-# 7. CUSTOMER CHURN ENGINE & ML PREDICTION
+# 7. CUSTOMER CHURN ENGINE (RFM ONLY)
 # ============================================================================
 def calculate_churn_rfm(df):
     if df.empty: return pd.DataFrame(), 0.0
@@ -473,22 +472,9 @@ def calculate_churn_rfm(df):
             
     churn_df['Churn Risk Profile'] = churn_df.apply(assign_risk, axis=1)
     
-    # -------------------------------------------------------------
-    # MACHINE LEARNING: RANDOM FOREST PREDICTION
-    # -------------------------------------------------------------
-    churn_df['Target_Churn'] = (churn_df['Recency_Days'] > 90).astype(int)
-    
-    X = churn_df[['Frequency', 'Recency_Days', 'Total_Spend']]
-    y = churn_df['Target_Churn']
-    
-    rf = RandomForestClassifier(n_estimators=100, random_state=42, max_depth=5)
-    rf.fit(X, y)
-    
-    churn_df['ML_Churn_Probability'] = rf.predict_proba(X)[:, 1]
-    churn_df['ML_Churn_Probability'] = (churn_df['ML_Churn_Probability'] * 100).round(1).astype(str) + "%"
-    
-    overall_churn_rate = (y.sum() / len(y)) * 100
-    churn_df = churn_df.drop(columns=['Target_Churn'])
+    # Calculate pure math-based churn rate (No Sklearn)
+    at_risk_count = churn_df[churn_df['Churn Risk Profile'].isin(['High Risk (One-Off)', 'Churned (Lost Repeat)'])].shape[0]
+    overall_churn_rate = (at_risk_count / len(churn_df)) * 100 if len(churn_df) > 0 else 0.0
     
     return churn_df, overall_churn_rate
 
@@ -584,11 +570,11 @@ def main():
         draw_plotly_ecosystem(df)
 
     with tab6:
-        st.subheader("Customer Churn Forecasting (RFM & Random Forest ML)")
+        st.subheader("Customer Churn Forecasting (RFM)")
         churn_df, overall_churn_rate = calculate_churn_rfm(df)
         
-        st.metric("Predicted Overall Customer Churn Rate", f"{overall_churn_rate:.1f}%", 
-                  help="Calculated by Random Forest Machine Learning Model based on customer lifetime spend, recency, and order frequency.",
+        st.metric("Estimated Churn / High Risk Rate", f"{overall_churn_rate:.1f}%", 
+                  help="Calculated based on customers who have not made a purchase in over 90 days.",
                   delta_color="inverse")
         
         c_left, c_right = st.columns([1, 2])
@@ -599,7 +585,6 @@ def main():
             st.dataframe(risk_counts, width='stretch', hide_index=True)
             
         with c_right:
-            # Replaced Matplotlib implementation with Plotly to eliminate Segmentation Fault
             fig = go.Figure(data=[go.Bar(
                 x=risk_counts['Profile'],
                 y=risk_counts['Count'],
@@ -621,7 +606,7 @@ def main():
             st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
             
         st.markdown("---")
-        st.markdown("**🔍 View Customers by Risk Profile & AI Probability**")
+        st.markdown("**🔍 View Customers by Risk Profile**")
         
         profiles = ["All Profiles"] + churn_df['Churn Risk Profile'].unique().tolist()
         selected_profile = st.selectbox("Select a Risk Level to filter the customer list below:", profiles)
