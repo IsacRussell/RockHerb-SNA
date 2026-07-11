@@ -16,7 +16,7 @@ warnings.filterwarnings('ignore')
 # ============================================================================
 # 1. PLATFORM CONFIGURATION & UI SETUP (LIGHT MODE)
 # ============================================================================
-st.set_page_config(page_title="E-Commerce Intelligence", layout="wide")
+st.set_page_config(page_title="Social Network Analysis & Churn Prediction", layout="wide")
 
 # Updated to Light Mode Palette
 COLOR_BG = "#ffffff"          # Pure White background
@@ -194,8 +194,14 @@ def draw_single_seller_network(seller_name, df):
 # ============================================================================
 # 4. UNIVERSAL UNIPARTITE SNA BUILDER
 # ============================================================================
-def build_network(df, node_col, edge_group_col, max_cap=100):
+def build_network(df, node_col, edge_group_col, max_cap=100, include_isolated=False):
     G = nx.Graph()
+    
+    if include_isolated:
+        # Guarantee all nodes are present, even if they have 0 shared edges
+        all_unique_nodes = df[node_col].unique()
+        G.add_nodes_from(all_unique_nodes)
+        
     grouped = df.groupby(edge_group_col)[node_col].unique()
     
     edge_weights = {}
@@ -226,23 +232,30 @@ def draw_spiderweb_network(G, title, prefix):
     max_degree = max(degree_dict.values()) if degree_dict else 1
     min_degree = min(degree_dict.values()) if degree_dict else 1
     
-    cmap = mcolors.LinearSegmentedColormap.from_list("connection_heatmap", [COLOR_ACCENT, "#ffb3b3", "#e0e0e0"])
+    # Corrected Colormap: Red (Low Degree) -> Pink -> White (High Degree/Hubs)
+    cmap = mcolors.LinearSegmentedColormap.from_list("connection_heatmap", [COLOR_ACCENT, "#ffb3b3", "#ffffff"])
     
     for node in G.nodes():
         deg = degree_dict.get(node, 0)
-        heat_ratio = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
+        
+        # Isolated node explicit black logic
+        if deg == 0:
+            node_color = "#000000"
+            size = 8
+        else:
+            heat_ratio = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
+            node_color = mcolors.to_hex(cmap(heat_ratio))
+            size = 10 + (25 * heat_ratio) 
             
-        node_color = mcolors.to_hex(cmap(heat_ratio))
-        size = 10 + (25 * heat_ratio) 
         x = float(pos[node][0]) * 7500
         y = float(pos[node][1]) * 7500
         
         net.add_node(
             str(node), 
-            label=f"{str(node)[:10]}.." if heat_ratio < 0.5 else f"{str(node)[:15]}",
+            label=f"{str(node)[:10]}.." if (deg > 0 and heat_ratio < 0.5) else f"{str(node)[:15]}",
             title=f"{prefix} {node}\nConnections: {deg}", 
             size=size, x=x, y=y,
-            color={"background": node_color, "border": COLOR_EDGE}
+            color={"background": node_color, "border": COLOR_EDGE} # Gray border ensures white nodes are visible
         )
         
     for u, v, d in G.edges(data=True):
@@ -472,7 +485,7 @@ def calculate_churn_rfm(df):
             
     churn_df['Churn Risk Profile'] = churn_df.apply(assign_risk, axis=1)
     
-    # Calculate pure math-based churn rate (No Sklearn)
+    # Calculate pure math-based churn rate
     at_risk_count = churn_df[churn_df['Churn Risk Profile'].isin(['High Risk (One-Off)', 'Churned (Lost Repeat)'])].shape[0]
     overall_churn_rate = (at_risk_count / len(churn_df)) * 100 if len(churn_df) > 0 else 0.0
     
@@ -482,7 +495,7 @@ def calculate_churn_rfm(df):
 # 8. MAIN DASHBOARD INTERFACE
 # ============================================================================
 def main():
-    st.title("E-Commerce Intelligence: SNA & Churn")
+    st.title("Social Network Analysis & Churn Prediction")
     
     DATA_FILE = "RockHerb_Full.xlsx"
     
@@ -500,6 +513,7 @@ def main():
     
     available_years = sorted(raw_df['Order Date'].dt.year.unique().astype(int).tolist(), reverse=True)
     selected_year = st.sidebar.selectbox("Filter by Year", ["All Years"] + available_years)
+    selected_quarter = "All Quarters"
     
     if selected_year != "All Years":
         df = raw_df[raw_df['Order Date'].dt.year == selected_year]
@@ -509,6 +523,11 @@ def main():
             df = df[df['Order Date'].dt.month.isin(q_map[selected_quarter])]
     else:
         df = raw_df.copy()
+        
+    # Display the Dynamic Filters below the title
+    if selected_year != "All Years":
+        q_text = f" - {selected_quarter}" if selected_quarter != "All Quarters" else ""
+        st.markdown(f"**Viewing Data For:** {selected_year}{q_text}")
         
     if df.empty:
         st.error("No data available for the selected timeframe.")
@@ -542,13 +561,13 @@ def main():
                 st.markdown(f"**Customer Map: {selected_seller}**")
                 draw_single_seller_network(selected_seller, df)
             
-        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. Red nodes indicate hubs.")
-        seller_net = build_network(df, node_col='Seller Name', edge_group_col='Phone')
+        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate hubs. Red indicates fewer connections. Black dots are isolated sellers with 0 shared customers.")
+        seller_net = build_network(df, node_col='Seller Name', edge_group_col='Phone', include_isolated=True)
         draw_spiderweb_network(seller_net, "seller", "Seller:")
 
     with tab2:
         st.subheader("Product Lifetime Value Network")
-        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm.")
+        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate hubs. Red indicates fewer connections.")
         exploded_df_prod = explode_products(df)
         exploded_df_prod['Month_Str'] = exploded_df_prod['Order Date'].dt.strftime('%Y-%m')
         prod_net = build_network(exploded_df_prod, node_col='Clean_Product', edge_group_col='Month_Str', max_cap=80)
@@ -556,7 +575,7 @@ def main():
 
     with tab3:
         st.subheader("Customer Loyalty Network")
-        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm.")
+        st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate hubs. Red indicates fewer connections.")
         exploded_df_cust = explode_products(df)
         cust_net = build_network(exploded_df_cust, node_col='Phone', edge_group_col='Clean_Product', max_cap=80) 
         draw_spiderweb_network(cust_net, "customer", "Cust:")
@@ -582,15 +601,25 @@ def main():
         with c_left:
             risk_counts = churn_df['Churn Risk Profile'].value_counts().reset_index()
             risk_counts.columns = ['Profile', 'Count']
-            st.dataframe(risk_counts, width='stretch', hide_index=True)
+            
+            # Calculate Percentage
+            total_customers = risk_counts['Count'].sum()
+            risk_counts['Percentage'] = (risk_counts['Count'] / total_customers * 100).round(1)
+            
+            # Format text label for the bar chart
+            text_labels = [f"{val} ({pct}%)" for val, pct in zip(risk_counts['Count'], risk_counts['Percentage'])]
+            
+            st.dataframe(risk_counts[['Profile', 'Count']], width='stretch', hide_index=True)
             
         with c_right:
+            max_y_axis = risk_counts['Count'].max() * 1.2 # Expand Y axis so text fits 
+            
             fig = go.Figure(data=[go.Bar(
                 x=risk_counts['Profile'],
                 y=risk_counts['Count'],
                 marker_color=COLOR_ACCENT,
-                text=risk_counts['Count'],
-                textposition='auto'
+                text=text_labels,
+                textposition='outside' # Puts the Value (Percentage) Above the Bar
             )])
             
             fig.update_layout(
@@ -600,7 +629,7 @@ def main():
                 font=dict(color=COLOR_TEXT),
                 margin=dict(l=0, r=0, t=40, b=0),
                 xaxis=dict(showgrid=False, linecolor=COLOR_EDGE),
-                yaxis=dict(showgrid=True, gridcolor=COLOR_SURFACE, linecolor=COLOR_EDGE)
+                yaxis=dict(showgrid=True, gridcolor=COLOR_SURFACE, linecolor=COLOR_EDGE, range=[0, max_y_axis])
             )
             
             st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
