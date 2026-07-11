@@ -2,13 +2,11 @@ import streamlit as st
 import pandas as pd
 import networkx as nx
 import numpy as np
-import matplotlib
-matplotlib.use('Agg') # MUST BE SET BEFORE IMPORTING PYPLOT TO PREVENT SEGFAULT
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
+import matplotlib.colors as mcolors # Kept ONLY for color math, perfectly safe
 import os
 import math
 import random
+import base64
 from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
@@ -182,8 +180,16 @@ def draw_single_seller_network(seller_name, df):
     
     html_file = f"net_single_seller.html"
     net.save_graph(html_file)
+    
     with open(html_file, 'r', encoding='utf-8') as f:
-        st.html(f.read())
+        html_source = f.read()
+    
+    b64 = base64.b64encode(html_source.encode('utf-8')).decode('utf-8')
+    st.markdown(
+        f'<iframe src="data:text/html;base64,{b64}" width="100%" height="470px" style="border:none;"></iframe>',
+        unsafe_allow_html=True
+    )
+    
     os.remove(html_file)
 
 # ============================================================================
@@ -253,8 +259,16 @@ def draw_spiderweb_network(G, title, prefix):
     
     html_file = f"net_{title}.html"
     net.save_graph(html_file)
+    
     with open(html_file, 'r', encoding='utf-8') as f:
-        st.html(f.read())
+        html_source = f.read()
+        
+    b64 = base64.b64encode(html_source.encode('utf-8')).decode('utf-8')
+    st.markdown(
+        f'<iframe src="data:text/html;base64,{b64}" width="100%" height="620px" style="border:none;"></iframe>',
+        unsafe_allow_html=True
+    )
+    
     os.remove(html_file)
 
 # ============================================================================
@@ -585,17 +599,26 @@ def main():
             st.dataframe(risk_counts, width='stretch', hide_index=True)
             
         with c_right:
-            fig, ax = plt.subplots(figsize=(8, 4), facecolor=COLOR_BG)
-            ax.set_facecolor(COLOR_BG)
+            # Replaced Matplotlib implementation with Plotly to eliminate Segmentation Fault
+            fig = go.Figure(data=[go.Bar(
+                x=risk_counts['Profile'],
+                y=risk_counts['Count'],
+                marker_color=COLOR_ACCENT,
+                text=risk_counts['Count'],
+                textposition='auto'
+            )])
             
-            ax.bar(risk_counts['Profile'], risk_counts['Count'], color=COLOR_ACCENT, edgecolor=COLOR_EDGE)
+            fig.update_layout(
+                title="Customer Distribution by Risk Profile",
+                plot_bgcolor=COLOR_BG,
+                paper_bgcolor=COLOR_BG,
+                font=dict(color=COLOR_TEXT),
+                margin=dict(l=0, r=0, t=40, b=0),
+                xaxis=dict(showgrid=False, linecolor=COLOR_EDGE),
+                yaxis=dict(showgrid=True, gridcolor=COLOR_SURFACE, linecolor=COLOR_EDGE)
+            )
             
-            ax.set_title("Customer Distribution by Risk Profile", color=COLOR_TEXT)
-            ax.tick_params(colors=COLOR_TEXT)
-            for spine in ax.spines.values(): spine.set_edgecolor(COLOR_EDGE)
-            plt.xticks(rotation=15)
-            
-            st.pyplot(fig)
+            st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
             
         st.markdown("---")
         st.markdown("**🔍 View Customers by Risk Profile & AI Probability**")
