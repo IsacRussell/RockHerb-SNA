@@ -82,12 +82,13 @@ def load_and_clean_data(file_path):
 
         df = df.dropna(subset=['Order ID', 'Seller Name', 'Phone', 'Order Date', 'Grand Total', 'State'])
         
-        df['Seller Name'] = df['Seller Name'].astype(str).str.strip()
+        # Strip strings and remove any stray quotes that could break JavaScript rendering
+        df['Seller Name'] = df['Seller Name'].astype(str).str.strip().str.replace(r'["\']', '', regex=True)
         
         if 'Quantity X Product' in df.columns:
-            df['Base_Product'] = df['Quantity X Product'].astype(str).str.strip()
+            df['Base_Product'] = df['Quantity X Product'].astype(str).str.strip().str.replace(r'["\']', '', regex=True)
         else:
-            df['Base_Product'] = df['Product'].astype(str).str.strip()
+            df['Base_Product'] = df['Product'].astype(str).str.strip().str.replace(r'["\']', '', regex=True)
             
         df['Phone'] = df['Phone'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         
@@ -159,12 +160,12 @@ def draw_single_seller_network(seller_name, df):
         
         if node == seller_name:
             net.add_node(
-                node, label=node, size=75, x=x, y=y, # Scaled 250% (from 30)
+                node, label=node, size=75, x=x, y=y,
                 color={"background": COLOR_ACCENT, "border": COLOR_ACCENT}
             )
         else:
             net.add_node(
-                node, label=node, size=25, x=x, y=y, # Scaled 250% (from 10)
+                node, label=node, size=25, x=x, y=y,
                 color={"background": "#e0e0e0", "border": COLOR_EDGE}
             )
             net.add_edge(seller_name, node, color={"color": COLOR_EDGE, "opacity": 0.6})
@@ -241,11 +242,11 @@ def draw_spiderweb_network(G, title, prefix):
         # Isolated node explicit black logic
         if deg == 0:
             node_color = "#000000"
-            size = 20 # Scaled 250% (from 8)
+            size = 40 # Set to exactly 40 as requested
         else:
             heat_ratio = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
             node_color = mcolors.to_hex(cmap(heat_ratio))
-            size = 25 + (62.5 * heat_ratio) # Scaled 250% (from base 10 and multiplier 25)
+            size = 25 + (62.5 * heat_ratio) 
             
         x = float(pos[node][0]) * 7500
         y = float(pos[node][1]) * 7500
@@ -455,7 +456,6 @@ def draw_plotly_ecosystem(df):
         hovermode='closest'
     )
     st.plotly_chart(fig, width='stretch', config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
-
 
 # ============================================================================
 # 7. CUSTOMER CHURN ENGINE (RFM ONLY)
