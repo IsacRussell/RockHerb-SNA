@@ -159,12 +159,12 @@ def draw_single_seller_network(seller_name, df):
         
         if node == seller_name:
             net.add_node(
-                node, label=node, size=45, x=x, y=y, # Scaled single seller up 1.5x
+                node, label=node, size=150, x=x, y=y, # Scaled 500% larger
                 color={"background": COLOR_ACCENT, "border": COLOR_ACCENT}
             )
         else:
             net.add_node(
-                node, label=node, size=15, x=x, y=y, # Scaled customers up 1.5x
+                node, label=node, size=50, x=x, y=y, # Scaled 500% larger
                 color={"background": "#e0e0e0", "border": COLOR_EDGE}
             )
             net.add_edge(seller_name, node, color={"color": COLOR_EDGE, "opacity": 0.6})
@@ -241,11 +241,11 @@ def draw_spiderweb_network(G, title, prefix):
         # Isolated node explicit black logic
         if deg == 0:
             node_color = "#000000"
-            size = 12 # Scaled 150% larger (from 8)
+            size = 60 # Scaled 500% larger (from 12)
         else:
             heat_ratio = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
             node_color = mcolors.to_hex(cmap(heat_ratio))
-            size = 15 + (38 * heat_ratio) # Scaled 150% larger (from 10 base and 25 multiplier)
+            size = 75 + (190 * heat_ratio) # Scaled 500% larger (from base 15 and multiplier 38)
             
         x = float(pos[node][0]) * 7500
         y = float(pos[node][1]) * 7500
@@ -562,6 +562,7 @@ def main():
                 draw_single_seller_network(selected_seller, df)
             
         st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate hubs. Red indicates fewer connections. Black dots are isolated sellers with 0 shared customers.")
+        # Added include_isolated=True for this specific map
         seller_net = build_network(df, node_col='Seller Name', edge_group_col='Phone', include_isolated=True)
         draw_spiderweb_network(seller_net, "seller", "Seller:")
 
