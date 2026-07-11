@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import networkx as nx
 import numpy as np
+import matplotlib
+matplotlib.use('Agg') # MUST BE SET BEFORE IMPORTING PYPLOT TO PREVENT SEGFAULT
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import os
@@ -10,7 +12,6 @@ import random
 from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
-import streamlit.components.v1 as components
 from sklearn.ensemble import RandomForestClassifier
 import warnings
 warnings.filterwarnings('ignore')
@@ -136,7 +137,7 @@ def show_seller_profile(seller_name, data):
         Total_Spend=('Grand Total', 'sum')
     ).reset_index().sort_values(by='Total_Spend', ascending=False)
     
-    st.dataframe(cust_list, use_container_width=True, hide_index=True)
+    st.dataframe(cust_list, width='stretch', hide_index=True)
 
 def draw_single_seller_network(seller_name, df):
     sdf = df[df['Seller Name'] == seller_name]
@@ -167,7 +168,7 @@ def draw_single_seller_network(seller_name, df):
         else:
             net.add_node(
                 node, label=node, size=10, x=x, y=y,
-                color={"background": "#e0e0e0", "border": COLOR_EDGE} # Darker borders for light mode
+                color={"background": "#e0e0e0", "border": COLOR_EDGE}
             )
             net.add_edge(seller_name, node, color={"color": COLOR_EDGE, "opacity": 0.6})
 
@@ -182,7 +183,7 @@ def draw_single_seller_network(seller_name, df):
     html_file = f"net_single_seller.html"
     net.save_graph(html_file)
     with open(html_file, 'r', encoding='utf-8') as f:
-        components.html(f.read(), height=470)
+        st.html(f.read())
     os.remove(html_file)
 
 # ============================================================================
@@ -220,7 +221,6 @@ def draw_spiderweb_network(G, title, prefix):
     max_degree = max(degree_dict.values()) if degree_dict else 1
     min_degree = min(degree_dict.values()) if degree_dict else 1
     
-    # Light mode colormap: Accent(Red) -> Light Pink -> Light Gray
     cmap = mcolors.LinearSegmentedColormap.from_list("connection_heatmap", [COLOR_ACCENT, "#ffb3b3", "#e0e0e0"])
     
     for node in G.nodes():
@@ -237,7 +237,7 @@ def draw_spiderweb_network(G, title, prefix):
             label=f"{str(node)[:10]}.." if heat_ratio < 0.5 else f"{str(node)[:15]}",
             title=f"{prefix} {node}\nConnections: {deg}", 
             size=size, x=x, y=y,
-            color={"background": node_color, "border": COLOR_EDGE} # Visible border in light mode
+            color={"background": node_color, "border": COLOR_EDGE}
         )
         
     for u, v, d in G.edges(data=True):
@@ -254,7 +254,7 @@ def draw_spiderweb_network(G, title, prefix):
     html_file = f"net_{title}.html"
     net.save_graph(html_file)
     with open(html_file, 'r', encoding='utf-8') as f:
-        components.html(f.read(), height=620)
+        st.html(f.read())
     os.remove(html_file)
 
 # ============================================================================
@@ -317,13 +317,13 @@ def draw_plotly_state_customer(df):
 
     fig.add_trace(go.Scattergl(
         x=edge_x, y=edge_y, mode='lines',
-        line=dict(width=0.25, color=COLOR_EDGE), # Darker edges for white background
+        line=dict(width=0.25, color=COLOR_EDGE),
         hoverinfo='none', showlegend=False
     ))
 
     fig.add_trace(go.Scattergl(
         x=c_x, y=c_y, mode='markers',
-        marker=dict(size=4, color="#666666", line=dict(width=0.5, color=COLOR_BG)), # Dark gray dots
+        marker=dict(size=4, color="#666666", line=dict(width=0.5, color=COLOR_BG)),
         customdata=c_hover, hovertemplate="%{customdata}<extra></extra>", name='Customers'
     ))
 
@@ -344,7 +344,7 @@ def draw_plotly_state_customer(df):
         hoverlabel=dict(bgcolor=COLOR_SURFACE, font_size=13, font_family="Arial", bordercolor=COLOR_ACCENT),
         hovermode='closest'
     )
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
+    st.plotly_chart(fig, width='stretch', config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
 
 # ============================================================================
 # 6. GRAVITATIONAL WEB (Seller-Customer)
@@ -428,7 +428,7 @@ def draw_plotly_ecosystem(df):
         hoverlabel=dict(bgcolor=COLOR_SURFACE, font_size=13, font_family="Arial", bordercolor=COLOR_ACCENT),
         hovermode='closest'
     )
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
+    st.plotly_chart(fig, width='stretch', config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
 
 
 # ============================================================================
@@ -461,27 +461,19 @@ def calculate_churn_rfm(df):
     
     # -------------------------------------------------------------
     # MACHINE LEARNING: RANDOM FOREST PREDICTION
-    # Target definition: 1 if user hasn't bought in 90+ days, else 0
     # -------------------------------------------------------------
     churn_df['Target_Churn'] = (churn_df['Recency_Days'] > 90).astype(int)
     
     X = churn_df[['Frequency', 'Recency_Days', 'Total_Spend']]
     y = churn_df['Target_Churn']
     
-    # Train a lightweight Random Forest model on the fly
     rf = RandomForestClassifier(n_estimators=100, random_state=42, max_depth=5)
     rf.fit(X, y)
     
-    # Predict probability of churn for each customer
     churn_df['ML_Churn_Probability'] = rf.predict_proba(X)[:, 1]
-    
-    # Format probability as a clean percentage
     churn_df['ML_Churn_Probability'] = (churn_df['ML_Churn_Probability'] * 100).round(1).astype(str) + "%"
     
-    # Calculate overall predicted churn rate across the database
     overall_churn_rate = (y.sum() / len(y)) * 100
-    
-    # Drop the temporary target column to keep the table clean
     churn_df = churn_df.drop(columns=['Target_Churn'])
     
     return churn_df, overall_churn_rate
@@ -581,7 +573,6 @@ def main():
         st.subheader("Customer Churn Forecasting (RFM & Random Forest ML)")
         churn_df, overall_churn_rate = calculate_churn_rfm(df)
         
-        # New Metric Card displaying the AI Prediction Rate
         st.metric("Predicted Overall Customer Churn Rate", f"{overall_churn_rate:.1f}%", 
                   help="Calculated by Random Forest Machine Learning Model based on customer lifetime spend, recency, and order frequency.",
                   delta_color="inverse")
@@ -591,7 +582,7 @@ def main():
         with c_left:
             risk_counts = churn_df['Churn Risk Profile'].value_counts().reset_index()
             risk_counts.columns = ['Profile', 'Count']
-            st.dataframe(risk_counts, use_container_width=True, hide_index=True)
+            st.dataframe(risk_counts, width='stretch', hide_index=True)
             
         with c_right:
             fig, ax = plt.subplots(figsize=(8, 4), facecolor=COLOR_BG)
@@ -617,7 +608,7 @@ def main():
         else:
             display_df = churn_df[churn_df['Churn Risk Profile'] == selected_profile].sort_values(by='Recency_Days', ascending=False)
             
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        st.dataframe(display_df, width='stretch', hide_index=True)
 
 if __name__ == "__main__":
     main()
