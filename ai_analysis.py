@@ -159,12 +159,12 @@ def draw_single_seller_network(seller_name, df):
         
         if node == seller_name:
             net.add_node(
-                node, label=node, size=45, x=x, y=y, # Scaled single seller up 1.5x
+                node, label=node, size=30, x=x, y=y,
                 color={"background": COLOR_ACCENT, "border": COLOR_ACCENT}
             )
         else:
             net.add_node(
-                node, label=node, size=15, x=x, y=y, # Scaled customers up 1.5x
+                node, label=node, size=10, x=x, y=y,
                 color={"background": "#e0e0e0", "border": COLOR_EDGE}
             )
             net.add_edge(seller_name, node, color={"color": COLOR_EDGE, "opacity": 0.6})
@@ -241,11 +241,11 @@ def draw_spiderweb_network(G, title, prefix):
         # Isolated node explicit black logic
         if deg == 0:
             node_color = "#000000"
-            size = 12 # Scaled 150% larger (from 8)
+            size = 8
         else:
             heat_ratio = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
             node_color = mcolors.to_hex(cmap(heat_ratio))
-            size = 15 + (38 * heat_ratio) # Scaled 150% larger (from 10 base and 25 multiplier)
+            size = 10 + (25 * heat_ratio) 
             
         x = float(pos[node][0]) * 7500
         y = float(pos[node][1]) * 7500
