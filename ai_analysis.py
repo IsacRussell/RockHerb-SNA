@@ -6,6 +6,7 @@ import matplotlib.colors as mcolors
 import os
 import math
 import random
+import base64
 from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
@@ -550,6 +551,42 @@ def main():
         st.caption("Logic: Fruchterman-Reingold Force-Directed Algorithm. White nodes indicate hubs. Red indicates fewer connections. Black dots are isolated sellers with 0 shared customers.")
         seller_net = build_network(df, node_col='Seller Name', edge_group_col='Phone', include_isolated=True)
         draw_spiderweb_network(seller_net, "seller", "Seller:")
+
+        # --- SELLER LEADERBOARD ---
+        st.markdown("---")
+        st.subheader("Seller Leaderboard")
+        
+        # Aggregate data for the leaderboard
+        seller_agg = df.groupby('Seller Name').agg(
+            Revenue=('Grand Total', 'sum'),
+            Customers=('Phone', 'nunique'),
+            Orders=('Order ID', 'nunique')
+        ).reset_index()
+        
+        # Leaderboard Filters
+        col_view, col_count, col_sort = st.columns(3)
+        view_type = col_view.selectbox("View", ["Top", "Bottom"])
+        row_count_str = col_count.selectbox("Number of Sellers", ["5", "10", "20", "50", "All"])
+        sort_metric = col_sort.selectbox("Sort By", ["Revenue", "Customers", "Orders"])
+        
+        # Sort and filter the dataframe
+        ascending = True if view_type == "Bottom" else False
+        seller_agg = seller_agg.sort_values(by=sort_metric, ascending=ascending)
+        
+        if row_count_str != "All":
+            seller_agg = seller_agg.head(int(row_count_str))
+            
+        st.dataframe(
+            seller_agg, 
+            width='stretch', 
+            hide_index=True,
+            column_config={
+                "Revenue": st.column_config.NumberColumn(
+                    "Revenue (RM)",
+                    format="RM %.2f"
+                )
+            }
+        )
 
     with tab2:
         st.subheader("Product Lifetime Value Network")
