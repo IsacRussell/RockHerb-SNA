@@ -6,7 +6,7 @@ import matplotlib.colors as mcolors
 import os
 import math
 import random
-import base64
+import joblib
 from itertools import combinations
 from pyvis.network import Network
 import plotly.graph_objects as go
@@ -445,7 +445,7 @@ def draw_plotly_ecosystem(df):
     st.plotly_chart(fig, width='stretch', config={'scrollZoom': True, 'displayModeBar': True, 'displaylogo': False})
 
 # ============================================================================
-# 7. CUSTOMER CHURN ENGINE (RFM ONLY)
+# 7. CUSTOMER CHURN ENGINE & ML PREDICTION (INFERENCE ONLY)
 # ============================================================================
 def calculate_churn_rfm(df):
     if df.empty: return pd.DataFrame(), 0.0
@@ -455,10 +455,13 @@ def calculate_churn_rfm(df):
     churn_df = df.groupby('Phone').agg(
         Frequency=('Order ID', 'nunique'),
         Last_Purchase=('Order Date', 'max'),
+        First_Purchase=('Order Date', 'min'),
         Total_Spend=('Grand Total', 'sum')
     ).reset_index()
     
     churn_df['Recency_Days'] = (snapshot_date - churn_df['Last_Purchase']).dt.days
+    churn_df['Account_Age_Days'] = (snapshot_date - churn_df['First_Purchase']).dt.days
+    churn_df['Avg_Order_Value'] = churn_df['Total_Spend'] / churn_df['Frequency']
     
     def assign_risk(row):
         if row['Frequency'] >= 3 and row['Recency_Days'] <= 60:
@@ -472,9 +475,34 @@ def calculate_churn_rfm(df):
             
     churn_df['Churn Risk Profile'] = churn_df.apply(assign_risk, axis=1)
     
-    # Calculate pure math-based churn rate
-    at_risk_count = churn_df[churn_df['Churn Risk Profile'].isin(['High Risk (One-Off)', 'Churned (Lost Repeat)'])].shape[0]
-    overall_churn_rate = (at_risk_count / len(churn_df)) * 100 if len(churn_df) > 0 else 0.0
+    # ---------------------------------------------------------------------
+    # LOAD PRE-TRAINED RANDOM FOREST MODEL (Memory Safe)
+    # ---------------------------------------------------------------------
+    model_path = 'churn_model.pkl'
+    
+    if os.path.exists(model_path):
+        # Load the saved brain
+        rf_model = joblib.load(model_path)
+        
+        # Prepare the exact same features the model was trained on
+        X_predict = churn_df[['Frequency', 'Total_Spend', 'Account_Age_Days', 'Avg_Order_Value']]
+        
+        # Ask the model for the probability percentage of churn
+        churn_df['AI_Churn_Probability'] = rf_model.predict_proba(X_predict)[:, 1]
+        
+        # Calculate the overall predicted churn rate mathematically based on AI
+        predicted_churners = (churn_df['AI_Churn_Probability'] > 0.5).sum()
+        overall_churn_rate = (predicted_churners / len(churn_df)) * 100
+        
+        # Format for UI display
+        churn_df['AI_Churn_Probability'] = (churn_df['AI_Churn_Probability'] * 100).round(1).astype(str) + "%"
+        
+    else:
+        # Fallback to standard math if the .pkl file isn't uploaded yet
+        st.warning("⚠️ Pre-trained 'churn_model.pkl' not found. Falling back to mathematical RFM.")
+        at_risk_count = churn_df[churn_df['Churn Risk Profile'].isin(['High Risk (One-Off)', 'Churned (Lost Repeat)'])].shape[0]
+        overall_churn_rate = (at_risk_count / len(churn_df)) * 100 if len(churn_df) > 0 else 0.0
+        churn_df['AI_Churn_Probability'] = "N/A"
     
     return churn_df, overall_churn_rate
 
@@ -614,11 +642,11 @@ def main():
         draw_plotly_ecosystem(df)
 
     with tab6:
-        st.subheader("Customer Churn Forecasting (RFM)")
+        st.subheader("Customer Churn Forecasting (RFM & Machine Learning)")
         churn_df, overall_churn_rate = calculate_churn_rfm(df)
         
         st.metric("Estimated Churn / High Risk Rate", f"{overall_churn_rate:.1f}%", 
-                  help="Calculated based on customers who have not made a purchase in over 90 days.",
+                  help="Calculated using either the Machine Learning model (if available) or standard mathematical RFM modeling.",
                   delta_color="inverse")
         
         c_left, c_right = st.columns([1, 2])
@@ -660,7 +688,7 @@ def main():
             st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
             
         st.markdown("---")
-        st.markdown("**🔍 View Customers by Risk Profile**")
+        st.markdown("**🔍 View Customers by Risk Profile & AI Probability**")
         
         profiles = ["All Profiles"] + churn_df['Churn Risk Profile'].unique().tolist()
         selected_profile = st.selectbox("Select a Risk Level to filter the customer list below:", profiles)
@@ -670,7 +698,9 @@ def main():
         else:
             display_df = churn_df[churn_df['Churn Risk Profile'] == selected_profile].sort_values(by='Recency_Days', ascending=False)
             
-        st.dataframe(display_df, width='stretch', hide_index=True)
+        # Select the most useful columns for the final display
+        columns_to_show = ['Phone', 'Frequency', 'Total_Spend', 'Last_Purchase', 'Recency_Days', 'Churn Risk Profile', 'AI_Churn_Probability']
+        st.dataframe(display_df[columns_to_show], width='stretch', hide_index=True)
 
 if __name__ == "__main__":
     main()
